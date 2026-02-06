@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure Exam System</title>
+    <!-- Face-API.js from CDN -->
+    <script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+    <style>
+        /* --- CSS Variables & Reset --- */
+        :root {
+            --primary: #4f46e5;
+            --primary-dark: #4338ca;
+            --primary-light: #e0e7ff;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --success: #10b981;
+            --bg: #f3f4f6;
+            --card-bg: #ffffff;
+            --text-main: #1f2937;
+            --text-light: #6b7280;
+            --border: #e5e7eb;
+            --radius: 12px;
+            --shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, sans-serif; }
+
+        body {
+            background-color: var(--bg);
+            color: var(--text-main);
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+        }
+
+        #app-container {
+            width: 100%;
+            max-width: 1100px;
+            height: 90vh;
+            background: var(--card-bg);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            display: flex;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* View Management */
+        .view-section { display: none; width: 100%; height: 100%; flex-direction: column; animation: fadeIn 0.3s ease; }
+        .view-section.active { display: flex; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        /* --- Auth --- */
+        .auth-layout { display: flex; width: 100%; height: 100%; }
+        .auth-banner {
+            flex: 1; background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white; display: flex; flex-direction: column; justify-content: center; align-items: center;
+        }
+        .auth-form-area { flex: 1; padding: 3rem; display: flex; flex-direction: column; justify-content: center; }
+        
+        /* --- Instructions --- */
+        .instructions-view { padding: 2rem; overflow-y: auto; align-items: center; text-align: center; }
+        .cam-preview-wrapper { margin: 1rem 0; border: 2px dashed var(--border); padding: 10px; border-radius: var(--radius); position: relative; }
+        
+        /* --- Exam View --- */
+        .exam-layout { display: flex; height: 100%; }
+        .questions-panel { flex: 3; display: flex; flex-direction: column; border-right: 1px solid var(--border); }
+        .questions-scroll { flex: 1; padding: 2rem; overflow-y: auto; background: #f9fafb; }
+        .question-card { background: white; padding: 1.5rem; border-radius: 8px; margin-bottom: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .options-grid label { display: flex; padding: 0.8rem; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 0.5rem; cursor: pointer; }
+        .options-grid label:hover { background: #f3f4f6; }
+
+        /* Sidebar */
+        .proctor-sidebar {
+            flex: 1; background: #111827; color: white; display: flex; flex-direction: column;
+            align-items: center; padding: 1.5rem; min-width: 280px;
+        }
+        .cam-feed {
+            width: 100%; height: 220px; background: #374151; border-radius: 8px;
+            overflow: hidden; margin-bottom: 1rem; position: relative;
+        }
+        video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+        #overlay-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transform: scaleX(-1); }
+        
+        /* Status Box */
+        .status-box {
+            width: 100%; background: rgba(255,255,255,0.1); padding: 1rem;
+            border-radius: 8px; margin-bottom: auto; display: flex; justify-content: space-between; align-items: center;
+        }
+        .strike-count-display {
+            font-size: 1.2rem; font-weight: bold; color: white;
+        }
+        .strike-count-display.danger { color: var(--danger); animation: flash 0.5s infinite alternate; }
+        
+        @keyframes flash { from { opacity: 1; } to { opacity: 0.5; } }
+
+        .log-area {
+            width: 100%; height: 120px; background: #1f2937; border-radius: 6px;
+            padding: 0.5rem; overflow-y: auto; font-family: monospace; font-size: 0.75rem;
+            color: #9ca3af; margin-bottom: 1rem;
+        }
+
+        /* --- Results --- */
+        .results-view { justify-content: center; align-items: center; text-align: center; padding: 2rem; }
+        .score-circle {
+            width: 160px; height: 160px; border-radius: 50%; border: 8px solid var(--primary);
+            display: flex; align-items: center; justify-content: center; font-size: 3rem; font-weight: bold; color: var(--primary); margin: 2rem 0;
+        }
+        .score-circle.fail { border-color: var(--danger); color: var(--danger); }
+
+        /* --- Buttons & Inputs --- */
+        .btn { padding: 0.8rem 1.5rem; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; width: 100%; }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-danger { background: var(--danger); color: white; }
+        .form-input { width: 100%; padding: 0.8rem; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 1rem; }
+
+        /* Overlays */
+        #violation-overlay {
+            position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.95);
+            z-index: 200; display: none; flex-direction: column; justify-content: center; align-items: center; color: white;
+        }
+        #warning-overlay {
+            position: absolute; top: 15%; left: 50%; transform: translateX(-50%);
+            background: var(--warning); color: white; padding: 10px 30px;
+            border-radius: 50px; font-weight: bold; display: none; z-index: 150; box-shadow: 0 5px 15px rgba(245, 158, 11, 0.4);
+        }
+        #toast-container { position: fixed; top: 20px; right: 20px; z-index: 999; display: flex; flex-direction: column; gap: 10px; }
+        .toast { background: white; padding: 1rem; border-left: 5px solid var(--primary); border-radius: 4px; box-shadow: 0 5px 15px rgba(0,0,0,0.2); animation: slideIn 0.3s; }
+        .toast.warning { border-left-color: var(--warning); }
+        @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+
+    </style>
+</head>
+<body>
+
+    <div id="toast-container"></div>
+    <div id="warning-overlay">⚠️ Look At Screen!</div>
+
+    <div id="app-container">
+        <!-- Auth -->
+        <section id="view-auth" class="view-section active">
+            <div class="auth-layout">
+                <!-- CHANGED: SecurePro AI to Secure Exam System -->
+                <div class="auth-banner">
+                    <h1>Secure Exam System</h1>
+                    <p>Proctoring System</p>
+                </div>
+                <div class="auth-form-area">
+                    <h2>Student Login</h2>
+                    <input type="email" id="login-email" class="form-input" placeholder="student@univ.edu" required>
+                    <input type="password" class="form-input" placeholder="Password" required>
+                    <button onclick="handleLogin()" class="btn btn-primary">Enter Portal</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Instructions -->
+        <section id="view-instructions" class="view-section">
+            <div class="instructions-view">
+                <h2>AI Setup</h2>
+                <p style="margin-bottom: 1rem;">Please allow camera access to calibrate.</p>
+                <div class="cam-preview-wrapper">
+                    <video id="video-preview" autoplay playsinline muted style="width: 320px; height: 200px; background:#000;"></video>
+                </div>
+                <div id="loading-text" style="color: var(--primary); font-weight: bold;">Initializing AI...</div>
+                <button id="btn-start-exam" class="btn btn-primary" style="margin-top:1rem; width:auto;" disabled>Loading...</button>
+            </div>
+        </section>
+
+        <!-- Exam -->
+        <section id="view-exam" class="view-section">
+            <div class="exam-layout">
+                <div class="questions-panel">
+                    <header style="padding:1rem 2rem; border-bottom:1px solid var(--border); display:flex; justify-content:space-between;">
+                        <div><h3>Web Development Final</h3><small>AI: Active</small></div>
+                        <div id="timer-display" style="font-size:1.5rem; font-weight:bold; color:var(--primary);">20:00</div>
+                    </header>
+                    <div id="questions-container" class="questions-scroll"></div>
+                </div>
+                
+                <aside class="proctor-sidebar">
+                    <div class="cam-feed">
+                        <video id="video-proctor" autoplay playsinline muted></video>
+                        <canvas id="overlay-canvas"></canvas>
+                    </div>
+                    
+                    <div class="status-box">
+                        <span>Status: Monitoring</span>
+                        <span class="strike-count-display" id="strike-count-text">0 / 3</span>
+                    </div>
+
+                    <div class="log-area" id="proctor-logs">
+                        > System Ready<br>
+                    </div>
+
+                    <button onclick="submitExam()" class="btn btn-danger">Finish Exam</button>
+                </aside>
+            </div>
+        </section>
+
+        <!-- Results -->
+        <section id="view-results" class="view-section">
+            <div class="results-view">
+                <h2 id="result-heading">Exam Finished</h2>
+                <div class="score-circle" id="score-circle">0/0</div>
+                <h3 id="status-text"></h3>
+                <p id="result-details"></p>
+                <button onclick="location.reload()" class="btn btn-primary" style="margin-top:2rem; width:auto;">Exit</button>
+            </div>
+        </section>
+
+        <!-- Violation Overlay -->
+        <div id="violation-overlay">
+            <h1 style="color:var(--danger); font-size:3rem;">STOP</h1>
+            <p id="violation-reason">Too many violations.</p>
+        </div>
+    </div>
+
+    <script>
+        // --- State ---
+        const state = {
+            currentUser: '',
+            timeLeft: 1200, // 20 mins
+            timerId: null,
+            isExamActive: false,
+            lookAwayCount: 0,
+            lastWarningTime: 0,
+            detectionInterval: null,
+            modelsLoaded: false,
+            cameraStream: null,
+            questions: [
+                // --- HTML ---
+                { id: 1, text: "What does HTML stand for?", options: ["Hyper Text Markup Language", "High Text Machine Language", "Hyper Tool Multi Language"], correct: 0 },
+                { id: 2, text: "Which tag is used for the largest heading?", options: ["<head>", "<h6>", "<h1>", "<heading>"], correct: 2 },
+                { id: 3, text: "Which attribute specifies the URL for an image?", options: ["src", "href", "link", "img"], correct: 0 },
+                { id: 4, text: "Which element is used for creating an unordered list?", options: ["<ol>", "<ul>", "<li>", "<list>"], correct: 1 },
+                // --- CSS ---
+                { id: 5, text: "What does CSS stand for?", options: ["Computer Style Sheets", "Cascading Style Sheets", "Creative Style Sheets"], correct: 1 },
+                { id: 6, text: "Which property is used to change the background color?", options: ["color", "bgcolor", "background-color", "bg-color"], correct: 2 },
+                { id: 7, text: "Which CSS selector selects an element with a specific id?", options: [".", "#", "*", "!"], correct: 1 },
+                { id: 8, text: "Which property is used to change the text color of an element?", options: ["text-color", "fgcolor", "color", "font-color"], correct: 2 },
+                // --- JavaScript ---
+                { id: 9, text: "Inside which HTML element do we put the JavaScript?", options: ["<javascript>", "<js>", "<script>", "<scripting>"], correct: 2 },
+                { id: 10, text: "How do you write 'Hello World' in an alert box?", options: ["msgBox('Hello World');", "alertBox('Hello World');", "alert('Hello World');", "msg('Hello World');"], correct: 2 },
+                { id: 11, text: "How do you create a function in JavaScript?", options: ["function = myFunction()", "function:myFunction()", "function myFunction()", "create myFunction()"], correct: 2 },
+                { id: 12, text: "Which symbol is used for single-line comments?", options: ["/*", "//", "<!--", "#"], correct: 1 },
+                // --- Python ---
+                { id: 13, text: "What is the correct way to create a function in Python?", options: ["function myFunction():", "def myFunction():", "create myFunction():"], correct: 1 },
+                { id: 14, text: "How do you output text in Python?", options: ["echo()", "print()", "console.log()", "write()"], correct: 1 },
+                { id: 15, text: "Which data type is immutable (cannot be changed)?", options: ["List", "Dictionary", "Set", "Tuple"], correct: 3 },
+                { id: 16, text: "What is the correct file extension for Python files?", options: [".pyt", ".pt", ".py", ".pi"], correct: 2 },
+                // --- Bootstrap ---
+                { id: 17, text: "Which class provides a responsive fixed-width container?", options: [".container-fluid", ".container", ".wrapper", ".row"], correct: 1 },
+                { id: 18, text: "Which Bootstrap class is used to create a primary button?", options: [".btn", ".btn-primary", ".btn-blue", ".btn-link"], correct: 1 },
+                { id: 19, text: "Which class creates a responsive row?", options: [".row", ".container", ".grid", ".table-row"], correct: 0 },
+                { id: 20, text: "Which class makes an image responsive in Bootstrap?", options: [".img-responsive", ".img-fluid", ".img-auto", ".img-size"], correct: 1 }
+            ]
+        };
+
+        // --- Auth ---
+        function handleLogin() {
+            const email = document.getElementById('login-email').value;
+            if(!email) return alert('Enter email');
+            state.currentUser = email.split('@')[0];
+            switchView('view-instructions');
+            startPreviewCamera();
+        }
+
+        async function startPreviewCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                state.cameraStream = stream;
+                document.getElementById('video-preview').srcObject = stream;
+                loadModels();
+            } catch (e) {
+                console.error(e);
+                alert("Camera permission required.");
+            }
+        }
+
+        async function loadModels() {
+            const btn = document.getElementById('btn-start-exam');
+            const txt = document.getElementById('loading-text');
+            try {
+                const MODEL_URL = 'https://justadudewhohacks.github.io/face-api.js/models';
+                await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+                await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+                
+                state.modelsLoaded = true;
+                txt.innerText = "AI Models Loaded Successfully";
+                btn.disabled = false;
+                btn.innerText = "Start Exam (20 Questions)";
+                btn.onclick = startExam;
+            } catch (err) {
+                txt.innerText = "Error loading models.";
+                txt.style.color = "red";
+            }
+        }
+
+        // --- Exam Start ---
+        function startExam() {
+            switchView('view-exam');
+            const proctorVid = document.getElementById('video-proctor');
+            proctorVid.srcObject = document.getElementById('video-preview').srcObject;
+            
+            renderQuestions();
+            startTimer();
+            startDetection(proctorVid);
+            
+            // --- RE-ADDED: Tab Switching Listeners ---
+            console.log("Activating Tab Protection...");
+            document.addEventListener('visibilitychange', handleVisibilityChange);
+            window.addEventListener('blur', handleWindowBlur);
+            // -----------------------------------------
+
+            state.isExamActive = true;
+        }
+
+        // --- RE-ADDED: Tab Switching Logic ---
+        function handleVisibilityChange() {
+            if (document.hidden && state.isExamActive) {
+                console.log("Tab switched!");
+                forceSubmit("Tab Switch Detected");
+            }
+        }
+
+        function handleWindowBlur() {
+            if (state.isExamActive) {
+                console.log("Window blurred!");
+                forceSubmit("Window Focus Lost");
+            }
+        }
+        // ---------------------------------------
+
+        function renderQuestions() {
+            const container = document.getElementById('questions-container');
+            container.innerHTML = '';
+            state.questions.forEach((q, i) => {
+                const div = document.createElement('div');
+                div.className = 'question-card';
+                div.innerHTML = `
+                    <div style="font-weight:600; margin-bottom:1rem;">${i+1}. ${q.text}</div>
+                    <div class="options-grid">
+                        ${q.options.map((opt, idx) => `<label><input type="radio" name="q-${q.id}" value="${idx}"> ${opt}</label>`).join('')}
+                    </div>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function startTimer() {
+            const disp = document.getElementById('timer-display');
+            state.timerId = setInterval(() => {
+                state.timeLeft--;
+                const m = Math.floor(state.timeLeft / 60).toString().padStart(2,'0');
+                const s = (state.timeLeft % 60).toString().padStart(2,'0');
+                disp.innerText = `${m}:${s}`;
+                if(state.timeLeft <= 0) forceSubmit("Time Expired");
+            }, 1000);
+        }
+
+        // --- AI Detection (Face) ---
+        function startDetection(video) {
+            const canvas = document.getElementById('overlay-canvas');
+            faceapi.matchDimensions(canvas, { width: video.clientWidth, height: video.clientHeight });
+            const logBox = document.getElementById('proctor-logs');
+
+            state.detectionInterval = setInterval(async () => {
+                if (!state.isExamActive) return;
+
+                const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks();
+                const resized = faceapi.resizeResults(detections, { width: video.clientWidth, height: video.clientHeight });
+                
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                faceapi.draw.drawFaceLandmarks(canvas, resized);
+
+                if (detections.length > 0) {
+                    const landmarks = detections[0].landmarks;
+                    const nose = landmarks.getNose()[3];
+                    const jaw = landmarks.getJawOutline();
+                    const jawLeft = jaw[0];
+                    const jawRight = jaw[16];
+
+                    const centerX = (jawLeft.x + jawRight.x) / 2;
+                    const offsetX = nose.x - centerX;
+                    const faceWidth = Math.abs(jawRight.x - jawLeft.x);
+                    const threshold = faceWidth * 0.25; 
+
+                    const now = Date.now();
+                    if (now - state.lastWarningTime > 3000) {
+                        if (Math.abs(offsetX) > threshold) {
+                            handleStrike(offsetX > 0 ? "RIGHT" : "LEFT");
+                            state.lastWarningTime = now;
+                        }
+                    }
+                }
+            }, 100);
+        }
+
+        // --- Strike Logic ---
+        function handleStrike(direction) {
+            state.lookAwayCount++;
+            console.log(`STRIKE INCREMENTED: ${state.lookAwayCount}`);
+
+            const strikeText = document.getElementById('strike-count-text');
+            strikeText.innerText = `${state.lookAwayCount} / 3`;
+            strikeText.classList.add('danger');
+            
+            const logBox = document.getElementById('proctor-logs');
+            logBox.innerHTML += `> Looking ${direction}! Strike: ${state.lookAwayCount}<br>`;
+            logBox.scrollTop = logBox.scrollHeight;
+
+            document.getElementById('warning-overlay').style.display = 'block';
+            showToast(`Look ${direction}! Strike ${state.lookAwayCount}/3`, 'warning');
+
+            setTimeout(() => {
+                document.getElementById('warning-overlay').style.display = 'none';
+                strikeText.classList.remove('danger');
+            }, 2000);
+
+            if (state.lookAwayCount >= 3) {
+                forceSubmit("Too many gaze violations");
+            }
+        }
+
+        // --- Submit Logic ---
+        function submitExam() {
+            forceSubmit("Manual Submission");
+        }
+
+        function forceSubmit(reason) {
+            if (!state.isExamActive) return;
+            state.isExamActive = false;
+            
+            // Stop Everything
+            clearInterval(state.timerId);
+            clearInterval(state.detectionInterval);
+            if(state.cameraStream) state.cameraStream.getTracks().forEach(t => t.stop());
+
+            const isViolation = reason !== "Manual Submission" && reason !== "Time Expired";
+            
+            if (isViolation) {
+                document.getElementById('violation-reason').innerText = reason;
+                document.getElementById('violation-overlay').style.display = 'flex';
+                setTimeout(() => {
+                    document.getElementById('violation-overlay').style.display = 'none';
+                    showResults(false, reason);
+                }, 3000);
+            } else {
+                showResults(true, reason);
+            }
+        }
+
+        function showResults(clean, reason) {
+            let score = 0;
+            try {
+                state.questions.forEach(q => {
+                    const selected = document.querySelector(`input[name="q-${q.id}"]:checked`);
+                    if (selected && parseInt(selected.value) === q.correct) score++;
+                });
+            } catch(e) { console.log("Calculation error"); }
+
+            switchView('view-results');
+            const circle = document.getElementById('score-circle');
+            const status = document.getElementById('status-text');
+            const details = document.getElementById('result-details');
+            
+            const total = state.questions.length;
+            circle.innerText = `${score}/${total}`;
+
+            if (!clean) {
+                circle.classList.add('fail');
+                status.innerText = "FAILED";
+                status.style.color = "var(--danger)";
+                details.innerText = `Reason: ${reason}`;
+            } else {
+                const pct = Math.round((score/total)*100);
+                circle.classList.remove('fail');
+                status.innerText = pct >= 50 ? "PASS" : "FAIL";
+                status.style.color = pct >= 50 ? "var(--success)" : "var(--danger)";
+                details.innerText = reason;
+            }
+        }
+
+        function switchView(id) {
+            document.querySelectorAll('.view-section').forEach(el => el.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+        }
+
+        function showToast(msg, type) {
+            const c = document.getElementById('toast-container');
+            const t = document.createElement('div');
+            t.className = `toast ${type}`;
+            t.innerText = msg;
+            c.appendChild(t);
+            setTimeout(() => t.remove(), 3000);
+        }
+    </script>
+</body>
+</html>

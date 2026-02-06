@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Exam</title>
+    <script>
+        let warning = 0;
+
+        document.addEventListener("visibilitychange", function () {
+            if (document.hidden) {
+                alert("Tab switching detected! Exam auto submitted.");
+                document.getElementById("examForm").submit();
+            }
+        });
+
+        // Timer (5 minutes)
+        let time = 300;
+        function timer(){
+            let min = Math.floor(time/60);
+            let sec = time%60;
+            document.getElementById("timer").innerHTML = min + ":" + sec;
+            time--;
+            if(time < 0){
+                alert("Time Up! Exam submitted");
+                document.getElementById("examForm").submit();
+            }
+        }
+        setInterval(timer,1000);
+    </script>
+</head>
+<body>
+<video id="video" width="300" autoplay></video>
+
+<script>
+navigator.mediaDevices.getUserMedia({ video: true })
+.then(function(stream){
+    document.getElementById("video").srcObject = stream;
+});
+</script>
+<h3>Warnings: <span id="warn">0</span></h3>
+
+<script>
+setInterval(function(){
+    fetch("/get_warnings")
+    .then(res => res.json())
+    .then(data => {
+        document.getElementById("warn").innerText = data.count;
+        if(data.count >= 3){
+            alert("You violated exam rules 3 times. Exam auto submitted.");
+            document.getElementById("examForm").submit();
+        }
+    });
+},2000);
+</script>
+
+<h2>Online Examination</h2>
+<h3>Time Left: <span id="timer">5:00</span></h3>
+
+<form method="POST" id="examForm">
+    {% for q in questions %}
+        <p><b>{{ questions[q].question }}</b></p>
+        {% for option in questions[q].options %}
+            <input type="radio" name="{{ q }}" value="{{ option }}" required> {{ option }}<br>
+        {% endfor %}
+        <br>
+    {% endfor %}
+    <button type="submit">Submit Exam</button>
+</form>
+
+</body>
+</html>
